@@ -269,6 +269,15 @@ pub extern "C" fn krun_set_log_level(level: u32) -> i32 {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn krun_set_logs(filters: *const c_char) -> i32 {
+    match CStr::from_ptr(filters).to_str() {
+        Ok(f) => env_logger::Builder::new().parse_filters(f).init(),
+        Err(_) => return -libc::EINVAL,
+    };
+    KRUN_SUCCESS
+}
+
+#[no_mangle]
 #[cfg(not(feature = "efi"))]
 pub extern "C" fn krun_create_ctx() -> i32 {
     let krunfw_version = unsafe { krunfw_get_version() };
