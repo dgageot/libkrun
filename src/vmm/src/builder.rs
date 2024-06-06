@@ -12,6 +12,7 @@ use std::io;
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 
 use super::{Error, Vmm};
 
@@ -585,6 +586,8 @@ pub fn build_microvm(
         event_manager,
         intc.clone(),
         vm_resources.console_output.clone(),
+        vm_resources.stdin.clone(),
+        vm_resources.stdout.clone(),
     )?;
     #[cfg(feature = "gpu")]
     if let Some(virgl_flags) = vm_resources.gpu_virgl_flags {
@@ -1137,6 +1140,8 @@ fn attach_console_devices(
     event_manager: &mut EventManager,
     intc: Option<Arc<Mutex<Gic>>>,
     console_output: Option<PathBuf>,
+    stdin: Option<u32>,
+    stdout: Option<u32>,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
@@ -1147,61 +1152,74 @@ fn attach_console_devices(
             output: Some(port_io::output_file(file).unwrap()),
         }]
     } else {
-        let stdin_is_terminal = isatty(STDIN_FILENO).unwrap_or(false);
-        let stdout_is_terminal = isatty(STDOUT_FILENO).unwrap_or(false);
-        let stderr_is_terminal = isatty(STDERR_FILENO).unwrap_or(false);
-
-        if let Err(e) = term_set_raw_mode(!stdin_is_terminal) {
-            log::error!("Failed to set terminal to raw mode: {e}")
-        }
-
-        let console_input = if stdin_is_terminal {
-            Some(port_io::stdin().unwrap())
-        } else {
-            #[cfg(target_os = "linux")]
-            {
-                let sigint_input = port_io::PortInputSigInt::new();
-                let sigint_input_fd = sigint_input.sigint_evt().as_raw_fd();
-                register_sigint_handler(sigint_input_fd).map_err(RegisterFsSigwinch)?;
-                Some(Box::new(sigint_input) as _)
+        if let Some(stdin) = stdin {
+            if let Some(stdout) = stdout {
+                unsafe {
+                    vec![PortDescription::Console {
+                        input: Some(port_io::stdin_fd(OwnedFd::from_raw_fd(RawFd::from(stdin as i32))).unwrap()),
+                        output: Some(port_io::output_to_raw_fd_dup(stdout as i32).unwrap()),
+                    }]
+                }
+            } else {
+                panic!("BUG")
             }
-            #[cfg(not(target_os = "linux"))]
-            Some(port_io::input_empty().unwrap())
-        };
+        }else {
+            let stdin_is_terminal = isatty(STDIN_FILENO).unwrap_or(false);
+            let stdout_is_terminal = isatty(STDOUT_FILENO).unwrap_or(false);
+            let stderr_is_terminal = isatty(STDERR_FILENO).unwrap_or(false);
 
-        let console_output = if stdout_is_terminal {
-            Some(port_io::stdout().unwrap())
-        } else {
-            Some(port_io::output_to_log_as_err())
-        };
+            if let Err(e) = term_set_raw_mode(!stdin_is_terminal) {
+                log::error!("Failed to set terminal to raw mode: {e}")
+            }
 
-        let mut ports = vec![PortDescription::Console {
-            input: console_input,
-            output: console_output,
-        }];
+            let console_input = if stdin_is_terminal {
+                Some(port_io::stdin().unwrap())
+            } else {
+                #[cfg(target_os = "linux")]
+                {
+                    let sigint_input = port_io::PortInputSigInt::new();
+                    let sigint_input_fd = sigint_input.sigint_evt().as_raw_fd();
+                    register_sigint_handler(sigint_input_fd).map_err(RegisterFsSigwinch)?;
+                    Some(Box::new(sigint_input) as _)
+                }
+                #[cfg(not(target_os = "linux"))]
+                Some(port_io::input_empty().unwrap())
+            };
 
-        if !stdin_is_terminal {
-            ports.push(PortDescription::InputPipe {
-                name: "krun-stdin".into(),
-                input: port_io::stdin().unwrap(),
-            })
+            let console_output = if stdout_is_terminal {
+                Some(port_io::stdout().unwrap())
+            } else {
+                Some(port_io::output_to_log_as_err())
+            };
+
+            let mut ports = vec![PortDescription::Console {
+                input: console_input,
+                output: console_output,
+            }];
+
+            if !stdin_is_terminal {
+                ports.push(PortDescription::InputPipe {
+                    name: "krun-stdin".into(),
+                    input: port_io::stdin().unwrap(),
+                })
+            }
+
+            if !stdout_is_terminal {
+                ports.push(PortDescription::OutputPipe {
+                    name: "krun-stdout".into(),
+                    output: port_io::stdout().unwrap(),
+                })
+            };
+
+            if !stderr_is_terminal {
+                ports.push(PortDescription::OutputPipe {
+                    name: "krun-stderr".into(),
+                    output: port_io::stderr().unwrap(),
+                });
+            }
+
+            ports
         }
-
-        if !stdout_is_terminal {
-            ports.push(PortDescription::OutputPipe {
-                name: "krun-stdout".into(),
-                output: port_io::stdout().unwrap(),
-            })
-        };
-
-        if !stderr_is_terminal {
-            ports.push(PortDescription::OutputPipe {
-                name: "krun-stderr".into(),
-                output: port_io::stderr().unwrap(),
-            });
-        }
-
-        ports
     };
 
     let console = Arc::new(Mutex::new(devices::virtio::Console::new(ports).unwrap()));

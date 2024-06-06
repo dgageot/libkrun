@@ -117,6 +117,10 @@ pub struct VmResources {
     pub console_output: Option<PathBuf>,
     /// SMBIOS OEM Strings
     pub smbios_oem_strings: Option<Vec<String>>,
+    /// File descriptor to connect stdin.
+    pub stdin: Option<u32>,
+    /// File descriptor to connect stdout.
+    pub stdout: Option<u32>,
 }
 
 impl VmResources {
@@ -263,6 +267,14 @@ impl VmResources {
         self.console_output = Some(console_output);
     }
 
+    pub fn set_stdin(&mut self, stdin: u32) {
+        self.stdin = Some(stdin);
+    }
+
+    pub fn set_stdout(&mut self, stdout: u32) {
+        self.stdout = Some(stdout);
+    }
+
     /// Sets a network device to be attached when the VM starts.
     #[cfg(feature = "net")]
     pub fn add_network_interface(
@@ -330,6 +342,8 @@ mod tests {
             enable_snd: False,
             console_output: None,
             smbios_oem_strings: None,
+            stdin: None,
+            cstdout: None,
         }
     }
 

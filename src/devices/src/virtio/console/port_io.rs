@@ -24,6 +24,11 @@ pub trait PortOutput {
     fn wait_until_writable(&self);
 }
 
+pub fn stdin_fd(fd : OwnedFd) -> Result<Box<dyn PortInput + Send>, nix::Error> {
+    make_non_blocking(&fd)?;
+    Ok(Box::new(PortInputFd(fd)))
+}
+
 pub fn stdin() -> Result<Box<dyn PortInput + Send>, nix::Error> {
     let fd = dup_raw_fd_into_owned(STDIN_FILENO)?;
     make_non_blocking(&fd)?;

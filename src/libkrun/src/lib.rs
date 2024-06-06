@@ -98,6 +98,8 @@ struct ContextConfig {
     gpu_virgl_flags: Option<u32>,
     enable_snd: bool,
     console_output: Option<PathBuf>,
+    stdin: Option<u32>,
+    stdout: Option<u32>,
 }
 
 impl ContextConfig {
@@ -891,6 +893,23 @@ pub unsafe extern "C" fn krun_set_console_output(ctx_id: u32, c_filepath: *const
     }
 }
 
+#[no_mangle]
+pub extern "C" fn krun_set_stdin_stdout(ctx_id: u32, stdin: u32, stdout: u32) -> i32 {
+    match CTX_MAP.lock().unwrap().entry(ctx_id) {
+        Entry::Occupied(mut ctx_cfg) => {
+            let cfg = ctx_cfg.get_mut();
+            if cfg.stdin.is_some() || cfg.stdout.is_some() {
+                -libc::EINVAL
+            } else {
+                cfg.stdin = Some(stdin);
+                cfg.stdout = Some(stdout);
+                KRUN_SUCCESS
+            }
+        }
+        Entry::Vacant(_) => -libc::ENOENT,
+    }
+}
+
 #[allow(clippy::missing_safety_doc)]
 #[no_mangle]
 pub unsafe extern "C" fn krun_set_smbios_oem_strings(
@@ -1072,6 +1091,12 @@ pub extern "C" fn krun_start_enter(ctx_id: u32) -> i32 {
 
     if let Some(console_output) = ctx_cfg.console_output {
         ctx_cfg.vmr.set_console_output(console_output);
+    }
+    if let Some(stdin) = ctx_cfg.stdin {
+        ctx_cfg.vmr.set_stdin(stdin);
+    }
+    if let Some(stdout) = ctx_cfg.stdout {
+        ctx_cfg.vmr.set_stdout(stdout);
     }
 
     #[cfg(target_os = "macos")]
