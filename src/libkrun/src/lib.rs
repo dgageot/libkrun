@@ -468,7 +468,7 @@ pub unsafe extern "C" fn krun_set_root_disk(ctx_id: u32, c_disk_path: *const c_c
                 block_id: "root".to_string(),
                 cache_type: CacheType::Writeback,
                 disk_image_path: disk_path.to_string(),
-                is_disk_read_only: false,
+                is_disk_read_only: true,
                 is_disk_root: true,
             };
             cfg.set_root_block_cfg(block_device_config);
