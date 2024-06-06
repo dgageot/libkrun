@@ -1107,7 +1107,8 @@ pub extern "C" fn krun_start_enter(ctx_id: u32) -> i32 {
         &mut event_manager,
         ctx_cfg.shutdown_efd,
         #[cfg(target_os = "macos")]
-        sender,
+        // TODO(dga): seems to prevent the endless stream of RecvError errors in the loop below.
+        sender.clone(),
     ) {
         Ok(vmm) => vmm,
         Err(e) => {
